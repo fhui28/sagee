@@ -114,6 +114,210 @@ See Ito and Sugasawa (2022) for the original grouped GEE methodology on which th
 \note{
 Note sandwich standard errors are not computed for the species-specific regression coefficients, as they are informed by only a single species (response) and hence lack replication for conventional sandwich inference. Standard errors for species-specific coefficients are therefore model-based and rely on the specified marginal variance and working correlation model.
 }
+\examples{
+\donttest{
+##------------------------------
+## Example 1: Binary responses with archetype-specific spatial correlations
+##------------------------------
+## Simulate multi-species presence-absence data from a marginal species archetype model,
+## with archetype-specific marginal spatial correlations
+set.seed(062027)
+num_sites <- 500
+num_species <- 60
+num_archetypes <- 3
+p <- 8
+covariate_dat <- mvtnorm::rmvnorm(num_sites, sigma = 0.5^abs(outer(1:p, 1:p, "-")))
+colnames(covariate_dat) <- paste0("X", 1:p)
+sp_coords <- cbind(runif(num_sites), runif(num_sites))
+
+true_archetypal_coefficients <- rbind(c(1, -1, 0, 0, 0.5, -0.5, 0.25, -0.25),
+                                      c(-1, 1, -1, 0.5, 0, 0, 0.25, 0),
+                                      c(1, 0.5, 0, 0, -1, 0, -0.5, -0.25))
+colnames(true_archetypal_coefficients) <- colnames(covariate_dat)
+true_spp_intercepts <- runif(num_species, -2.5, 0)
+
+## Marginal spatial correlations for each archetype: exponential plus a nugget
+true_range <- c(0.25, 0.35, 0.55)
+true_spvarprop <- c(0.6, 0.5, 0.4)
+true_R <- lapply(1:num_archetypes, function(k0) {
+    true_spvarprop[k0] * fields::Exp.cov(x1 = sp_coords, aRange = true_range[k0]) +
+        (1 - true_spvarprop[k0]) * diag(num_sites)
+    })
+
+simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+                           Xbeta_formula = ~ 1,
+                           data = as.data.frame(covariate_dat),
+                           family = binomial(),
+                           mixing_probabilities = c(0.5, 0.25, 0.25),
+                           archetypal_coefficients = true_archetypal_coefficients,
+                           species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+                           common_correlation = FALSE,
+                           marginal_correlation = true_R,
+                           seed = 062027)
+summary(colMeans(simdat$Y)) # Species prevalences
+
+
+## Fit SAGEE assuming an independence working correlation, and then with an
+## archetype-specific NNGP working correlation. 
+## Note also in the latter, the spatial smoothness is misspecified for fun! 
+fit_binary_ind <- SAGEE(y = simdat$Y,
+                        Xalpha_formula = ~ . - 1,
+                        Xbeta_formula = ~ 1,
+                        data = simdat$data,
+                        num_archetypes = num_archetypes,
+                        family = binomial(),
+                        working_correlation_control = list(cor_type = "independence"),
+                        num_cores = 2,
+                        control = list(trace = TRUE))
+
+fit_binary <- SAGEE(y = simdat$Y,
+                    Xalpha_formula = ~ . - 1,
+                    Xbeta_formula = ~ 1,
+                    data = simdat$data,
+                    num_archetypes = num_archetypes,
+                    family = binomial(),
+                    working_correlation_control = list(cor_type = "NNGP",
+                                                       spatial_coords = sp_coords,
+                                                       common = FALSE,
+                                                       matern_smoothness = 1.5,
+                                                       num_neighbors = 30),
+                    num_cores = 2,
+                    control = list(trace = TRUE))
+
+
+## Classification performance. Archetype labels are only identified up to a permutation,
+## so each true archetype is matched to the estimated archetype to which most of its
+## species are allocated.
+table(true = simdat$species_groupings, estimated = fit_binary_ind$species_groupings)
+table(true = simdat$species_groupings, estimated = fit_binary$species_groupings)
+
+match_archetypes <- function(true, estimated) {
+    tab <- table(true, estimated)
+    as.integer(colnames(tab))[apply(tab, 1, which.max)]
+    }
+binary_ind_map <- match_archetypes(simdat$species_groupings, fit_binary_ind$species_groupings)
+binary_map <- match_archetypes(simdat$species_groupings, fit_binary$species_groupings)
+
+## Proportion of species correctly classified
+c(independence = mean(binary_ind_map[simdat$species_groupings] == fit_binary_ind$species_groupings),
+  NNGP = mean(binary_map[simdat$species_groupings] == fit_binary$species_groupings))
+
+
+## Compare the true and estimated archetypal coefficients (after matching labels),
+true_archetypal_coefficients
+fit_binary_ind$archetypal_coefficients[binary_ind_map,]
+fit_binary$archetypal_coefficients[binary_map,]
+
+
+## Example of methods for the fitted SAGEE model
+summary(fit_binary)
+
+str(vcov(fit_binary), max.level = 1)
+
+fitted(fit_binary)[1:5, ]
+
+residuals(fit_binary)[1:5, ]
+
+plot(fit_binary, type = "dunnsmyth", envelope = FALSE)
+
+
+##------------------------------
+## Example 2: Negative binomial responses with a species-common spatial correlation
+##------------------------------
+## Simulate multi-species overdispersed count data, reusing the covariates, 
+## spatial coordinates, and archetypal coefficients from Example 1. 
+## All species now share the same marginal spatial correlation.
+true_disp_param <- runif(num_species, 0.5, 5)
+true_range <- 0.35/2
+true_spvarprop <- 0.8
+true_R <- true_spvarprop * fields::Exp.cov(x1 = sp_coords, aRange = true_range) +
+    (1 - true_spvarprop) * diag(num_sites)
+
+simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+                           Xbeta_formula = ~ 1,
+                           data = as.data.frame(covariate_dat),
+                           family = nb2(),
+                           mixing_probabilities = c(0.5, 0.25, 0.25),
+                           archetypal_coefficients = true_archetypal_coefficients,
+                           species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+                           dispersion_parameters = true_disp_param,
+                           common_correlation = TRUE,
+                           marginal_correlation = true_R,
+                           seed = 062027)
+summary(colMeans(simdat$Y > 0)) # Proportion of non-zero counts per species
+
+
+## Fit SAGEE assuming an independence working correlation, and then with an
+## archetype-specific NNGP working correlation. 
+## Note also in the latter, the spatial smoothness is misspecified for fun! 
+fit_nb_ind <- SAGEE(y = simdat$Y,
+                    Xalpha_formula = ~ . - 1,
+                    Xbeta_formula = ~ 1,
+                    data = simdat$data,
+                    num_archetypes = num_archetypes,
+                    family = nb2(),
+                    working_correlation_control = list(cor_type = "independence"),
+                    num_cores = 2,
+                    control = list(trace = TRUE))
+                        
+fit_nb <- SAGEE(y = simdat$Y,
+                Xalpha_formula = ~ . - 1,
+                Xbeta_formula = ~ 1,
+                data = simdat$data,
+                num_archetypes = num_archetypes,
+                family = nb2(),
+                working_correlation_control = list(cor_type = "NNGP",
+                                                   spatial_coords = sp_coords,
+                                                   common = TRUE,
+                                                   matern_smoothness = 1.5,
+                                                   num_neighbors = 30),
+                num_cores = 2,
+                control = list(trace = TRUE))
+
+## Classification performance. Archetype labels are only identified up to a permutation,
+## so each true archetype is matched to the estimated archetype to which most of its
+## species are allocated.
+table(true = simdat$species_groupings, estimated = fit_nb_ind$species_groupings)
+table(true = simdat$species_groupings, estimated = fit_nb$species_groupings)
+nb_ind_map <- match_archetypes(simdat$species_groupings, fit_nb_ind$species_groupings)
+nb_map <- match_archetypes(simdat$species_groupings, fit_nb$species_groupings)
+
+## Proportion of species correctly classified
+c(independence = mean(nb_ind_map[simdat$species_groupings] == fit_nb_ind$species_groupings),
+  NNGP = mean(nb_map[simdat$species_groupings] == fit_nb$species_groupings))
+  
+  
+## Compare the true and estimated archetypal coefficients (after matching labels),
+true_archetypal_coefficients
+fit_nb_ind$archetypal_coefficients[nb_ind_map,]
+fit_nb$archetypal_coefficients[nb_map,]
+
+
+## Compare the true and estimated species-specific intercepts and dispersion parameters
+par(mfrow = c(1, 2))
+plot(true_spp_intercepts, fit_nb$species_coefficients[1,],
+     xlab = "True intercepts", ylab = "Estimated intercepts")
+abline(0, 1)
+plot(true_disp_param, fit_nb$dispersion_parameters,
+     xlab = "True dispersion", ylab = "Estimated dispersion")
+abline(0, 1)
+par(mfrow = c(1, 1))
+
+
+## Example of methods for the fitted SAGEE model
+summary(fit_nb)
+
+str(vcov(fit_nb), max.level = 1)
+
+fitted(fit_nb)[1:5, ]
+
+residuals(fit_nb)[1:5, ]
+
+plot(fit_nb, type = "dunnsmyth", envelope = FALSE)
+}
+
+
+}
 \references{
 Dunstan, P. K., Foster, S. D., and Darnell, R. (2011).
 Model-based grouping of species across environmental gradients.
