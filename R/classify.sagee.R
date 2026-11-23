@@ -203,8 +203,7 @@ classify.sagee <- function(object,
     #' ## Final wrap up
     out <- list(call = call,
                 species_groupings = classification,
-                archetype_sizes = stats::setNames(tabulate(classification, nbins = num_archetypes), rownames(alpha)),
-                criterion = criterion)
+                classification_criterion = criterion)
 
     class(out) <- "classify.sagee"
     return(out)
