@@ -1,7 +1,7 @@
 #' @title Classify Species Using a Fitted SAGEE Model
 #'
 #' @description
-#' `r lifecycle::badge("experimental")`
+#' `r lifecycle::badge("stable")`
 #'
 #' Classifies species (response variables) into archetypes based on a fitted species archetype generalized estimating equation (SAGEE) model. For each species and candidate archetype, the fitted archetypal regression coefficients are held fixed while species-specific parameters are re-estimated using [GEEfn()]. The species is then assigned to the archetype based on the same hard-classification step in
 #' [SAGEE()].

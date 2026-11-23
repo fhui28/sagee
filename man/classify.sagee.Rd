@@ -28,7 +28,7 @@ An object of class \code{"classify.sagee"} containing:
 }
 }
 \description{
-\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#experimental}{\figure{lifecycle-experimental.svg}{options: alt='[Experimental]'}}}{\strong{[Experimental]}}
+\ifelse{html}{\href{https://lifecycle.r-lib.org/articles/stages.html#stable}{\figure{lifecycle-stable.svg}{options: alt='[Stable]'}}}{\strong{[Stable]}}
 
 Classifies species (response variables) into archetypes based on a fitted species archetype generalized estimating equation (SAGEE) model. For each species and candidate archetype, the fitted archetypal regression coefficients are held fixed while species-specific parameters are re-estimated using \code{\link[=GEEfn]{GEEfn()}}. The species is then assigned to the archetype based on the same hard-classification step in
 \code{\link[=SAGEE]{SAGEE()}}.
