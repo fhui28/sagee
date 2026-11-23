@@ -102,7 +102,7 @@
 #' colnames(true_archetypal_coefficients) <- colnames(covariate_dat)
 #' true_spp_intercepts <- runif(num_species, -2.5, 0)
 #'
-#' ## Marginal correlation for each archetype: exponential spatial correlation plus a nugget
+#' ## Marginal spatial correlations for each archetype: exponential plus a nugget
 #' true_range <- c(0.25, 0.35, 0.55)
 #' true_spvarprop <- c(0.6, 0.5, 0.4)
 #' true_R <- lapply(1:num_archetypes, function(k0) {
