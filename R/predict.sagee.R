@@ -34,12 +34,219 @@
 #' @return
 #' If `intervals = FALSE`, then a list containing the standard and adjusted GEE predictions, each of which is a matrix with `nrow(newdata)` rows and one column per species. If `intervals = TRUE`, then a list containing the standard and adjusted GEE predictions, along with their uncertainty intervals, each of which is again a matrix with `nrow(newdata)` rows and one column per species.
 #'
-#' @author
-#' Francis K. C. Hui \email{fhui28@gmail.com}
 #'
+#' @references
+#' Hui, F. K. C., Muller, P., and Welsh, A. H. (2025). 
+#' Adjusted predictions for generalized estimating equations 
+#' \emph{Biometrics},
+#' \doi{10.1093/biomtc/ujaf090}
+#' 
 #' @seealso
 #' [SAGEE()]
 #'
+#' @author
+#' Francis K. C. Hui \email{fhui28@gmail.com}
+#'
+#'
+#' @examples
+#' \donttest{
+#' ##------------------------------
+#' ## Example 1: Binary responses with archetype-specific spatial correlations
+#' ##------------------------------
+#' ## Simulate multi-species presence-absence data from a marginal species archetype model,
+#' ## with archetype-specific marginal spatial correlations
+#' set.seed(062027)
+#' num_sites <- 500
+#' num_species <- 100
+#' num_archetypes <- 3
+#' p <- 8
+#' covariate_dat <- mvtnorm::rmvnorm(num_sites, sigma = 0.5^abs(outer(1:p, 1:p, "-")))
+#' colnames(covariate_dat) <- paste0("X", 1:p)
+#' sp_coords <- cbind(runif(num_sites), runif(num_sites))
+#'
+#' true_archetypal_coefficients <- rbind(c(1, -1, 0, 0, 0.5, -0.5, 0.25, -0.25),
+#'                                       c(-1, 1, -1, 0.5, 0, 0, 0.25, 0),
+#'                                       c(1, 0.5, 0, 0, -1, 0, -0.5, -0.25))
+#' colnames(true_archetypal_coefficients) <- colnames(covariate_dat)
+#' true_spp_intercepts <- runif(num_species, -2.5, 0)
+#'
+#' ## Marginal correlation for each archetype: exponential spatial correlation plus a nugget
+#' true_range <- c(0.25, 0.35, 0.55)
+#' true_spvarprop <- c(0.6, 0.5, 0.4)
+#' true_R <- lapply(1:num_archetypes, function(k0) {
+#'     true_spvarprop[k0] * fields::Exp.cov(x1 = sp_coords, aRange = true_range[k0]) +
+#'         (1 - true_spvarprop[k0]) * diag(num_sites)
+#'     })
+#'
+#' simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+#'                            Xbeta_formula = ~ 1,
+#'                            data = as.data.frame(covariate_dat),
+#'                            family = binomial(),
+#'                            mixing_probabilities = c(0.5, 0.25, 0.25),
+#'                            archetypal_coefficients = true_archetypal_coefficients,
+#'                            species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+#'                            common_correlation = FALSE,
+#'                            marginal_correlation = true_R,
+#'                            seed = 062027)
+#' summary(colMeans(simdat$Y)) # Species prevalences
+#'
+#' ## Randomly split the sites (rows) into 400 training sites and 100 test sites
+#' train_sites <- sort(sample(1:num_sites, 400))
+#' test_sites <- setdiff(1:num_sites, train_sites)
+#'
+#'
+#' ## Fit SAGEE assuming an independence working correlation, and then with an
+#' ## archetype-specific NNGP working correlation. 
+#' ## Note also in the latter, the spatial smoothness is misspecified for fun! 
+#' fit_binary_ind <- SAGEE(y = simdat$Y[train_sites, ],
+#'                         Xalpha_formula = ~ . - 1,
+#'                         Xbeta_formula = ~ 1,
+#'                         data = simdat$data[train_sites, ],
+#'                         num_archetypes = num_archetypes,
+#'                         family = binomial(),
+#'                         working_correlation_control = list(cor_type = "independence"),
+#'                         num_cores = 2,
+#'                         control = list(trace = TRUE))
+#'
+#' fit_binary <- SAGEE(y = simdat$Y[train_sites, ],
+#'                     Xalpha_formula = ~ . - 1,
+#'                     Xbeta_formula = ~ 1,
+#'                     data = simdat$data[train_sites, ],
+#'                     num_archetypes = num_archetypes,
+#'                     family = binomial(),
+#'                     working_correlation_control = list(cor_type = "NNGP",
+#'                                                        spatial_coords = sp_coords[train_sites, ],
+#'                                                        common = FALSE,
+#'                                                        matern_smoothness = 1.5,
+#'                                                        num_neighbors = 30),
+#'                     num_cores = 2,
+#'                     control = list(trace = TRUE))
+#'
+#'
+#' ## Standard and adjusted GEE predictions at the test sites, along with 95% uncertainty
+#' ## intervals based on the model-based covariance matrix.
+#' ## Note if an independence working correlation is used, then the 
+#' ## adjusted and standard predictions coincide.
+#' pred_binary_ind <- predict(fit_binary_ind,
+#'                            newdata = simdat$data[test_sites,],
+#'                            intervals = TRUE)
+#'                        
+#' pred_binary <- predict(fit_binary,
+#'                        newdata = simdat$data[test_sites,],
+#'                        new_spatial_coords = sp_coords[test_sites,],
+#'                        intervals = TRUE)
+#' str(pred_binary)
+#' pred_binary$standard[1:5, 1:5]
+#' pred_binary$adjusted[1:5, 1:5]
+#'
+#'
+#' ## Predictive performance on the test sites. 
+#' ## Lower Brier scores and logarithm scores are better. 
+#' y_test <- as.matrix(simdat$Y[test_sites, ])
+#' c(standard_ind = mean((y_test - pred_binary_ind$standard)^2),
+#'   adjusted_ind = mean((y_test - pred_binary_ind$adjusted)^2),
+#'   standard = mean((y_test - pred_binary$standard)^2),
+#'   adjusted = mean((y_test - pred_binary$adjusted)^2))
+#' c(standard_ind = -mean(dbinom(y_test, size = 1, prob = pred_binary_ind$standard, log = TRUE)),
+#'   adjusted_ind = -mean(dbinom(y_test, size = 1, prob = pred_binary_ind$adjusted, log = TRUE)),
+#'   standard = -mean(dbinom(y_test, size = 1, prob = pred_binary$standard, log = TRUE)),
+#'   adjusted = -mean(dbinom(y_test, size = 1, prob = pred_binary$adjusted, log = TRUE)))
+#'
+#' ## Brier score for each species, comparing standard and adjusted predictions
+#' ## on a per species basis
+#' plot(colMeans((y_test - pred_binary$standard)^2),
+#'      colMeans((y_test - pred_binary$adjusted)^2),
+#'      xlab = "Brier score (standard)", ylab = "Brier score (adjusted)")
+#' abline(0, 1, col = "red", lty = 2)
+#'
+#' ## Widths of the uncertainty intervals
+#' summary(as.vector(pred_binary$standard_upper - pred_binary$standard_lower))
+#' summary(as.vector(pred_binary$adjusted_upper - pred_binary$adjusted_lower))
+#'
+#'
+#' ##------------------------------
+#' ## Example 2: Poisson responses with a species-common spatial correlation
+#' ##------------------------------
+#' ## Simulate multi-species count data, reusing the covariates, 
+#' ## spatial coordinates, and archetypal coefficients from Example 1. 
+#' ## All species now share the same marginal spatial correlation.
+#' true_range <- 0.35/2
+#' true_spvarprop <- 0.8
+#' true_R <- true_spvarprop * fields::Exp.cov(x1 = sp_coords, aRange = true_range) +
+#'     (1 - true_spvarprop) * diag(num_sites)
+#'
+#' simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+#'                            Xbeta_formula = ~ 1,
+#'                            data = as.data.frame(covariate_dat),
+#'                            family = poisson(),
+#'                            mixing_probabilities = c(0.5, 0.25, 0.25),
+#'                            archetypal_coefficients = true_archetypal_coefficients,
+#'                            species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+#'                            common_correlation = TRUE,
+#'                            marginal_correlation = true_R,
+#'                            seed = 062027)
+#' summary(colMeans(simdat$Y > 0)) # Proportion of non-zero counts per species
+#'
+#'
+#' ## Fit SAGEE assuming an independence working correlation, and then with an
+#' ## archetype-specific NNGP working correlation. 
+#' ## Note also in the latter, the spatial smoothness is misspecified for fun! 
+#' fit_pois_ind <- SAGEE(y = simdat$Y[train_sites, ],
+#'                     Xalpha_formula = ~ . - 1,
+#'                     Xbeta_formula = ~ 1,
+#'                     data = simdat$data[train_sites, ],
+#'                     num_archetypes = num_archetypes,
+#'                     family = poisson(),
+#'                     working_correlation_control = list(cor_type = "independence"),
+#'                     num_cores = 2,
+#'                     control = list(trace = TRUE))
+#'                         
+#' fit_pois <- SAGEE(y = simdat$Y[train_sites, ],
+#'                 Xalpha_formula = ~ . - 1,
+#'                 Xbeta_formula = ~ 1,
+#'                 data = simdat$data[train_sites, ],
+#'                 num_archetypes = num_archetypes,
+#'                 family = poisson(),
+#'                 working_correlation_control = list(cor_type = "NNGP",
+#'                                                    spatial_coords = sp_coords[train_sites, ],
+#'                                                    common = TRUE,
+#'                                                    matern_smoothness = 1.5,
+#'                                                    num_neighbors = 30),
+#'                 num_cores = 2,
+#'                 control = list(trace = TRUE))
+#'
+#'
+#' ## Standard and adjusted GEE predictions at the test sites, along with 95% uncertainty
+#' ## intervals based on the model-based covariance matrix.
+#' ## Note if an independence working correlation is used, then the 
+#' ## adjusted and standard predictions coincide.
+#' pred_pois_ind <- predict(fit_pois_ind,
+#'                          newdata = simdat$data[test_sites,],
+#'                          intervals = TRUE)
+#'                        
+#' pred_pois <- predict(fit_pois,
+#'                      newdata = simdat$data[test_sites,],
+#'                      new_spatial_coords = sp_coords[test_sites,],
+#'                      intervals = TRUE)
+#'                      
+#'                        
+#' ## Predictive performance on the test sites. 
+#' ## Lower Brier scores and logarithm scores are better. 
+#' y_test <- as.matrix(simdat$Y[test_sites, ])
+#' c(standard_ind = mean((y_test - pred_pois_ind$standard)^2),
+#'   adjusted_ind = mean((y_test - pred_pois_ind$adjusted)^2),
+#'   standard = mean((y_test - pred_pois$standard)^2),
+#'   adjusted = mean((y_test - pred_pois$adjusted)^2))
+#' c(standard_ind = -mean(dpois(y_test, lambda = pred_pois_ind$standard, log = TRUE)),
+#'   adjusted_ind = -mean(dpois(y_test, lambda = pred_pois_ind$adjusted, log = TRUE)),
+#'   standard = -mean(dpois(y_test, lambda = pred_pois$standard, log = TRUE)),
+#'   adjusted = -mean(dpois(y_test, lambda = pred_pois$adjusted, log = TRUE)))
+#'
+#' ## Widths of the uncertainty intervals
+#' summary(as.vector(pred_pois$standard_upper - pred_pois$standard_lower))
+#' summary(as.vector(pred_pois$adjusted_upper - pred_pois$adjusted_lower))
+#' }
+#' 
 #' @export
 #' @md
 predict.sagee <- function(object,
