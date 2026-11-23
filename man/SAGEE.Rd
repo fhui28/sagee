@@ -327,8 +327,7 @@ Model-based grouping of species across environmental gradients.
 Dunstan, P. K., Foster, S. D., Hui, F. K. C., and Warton, D. I. (2013).
 Finite mixture of regression modeling for high-dimensional count and
 biomass data in ecology.
-\emph{Journal of Agricultural, Biological, and Environmental Statistics},
-18, 357--375.
+\emph{Journal of Agricultural, Biological, and Environmental Statistics}.
 \doi{10.1007/s13253-013-0146-x}
 
 Ito, T. and Sugasawa, S. (2022).
