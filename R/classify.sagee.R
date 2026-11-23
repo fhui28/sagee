@@ -26,6 +26,10 @@
 #' @seealso
 #' [SAGEE()], [GEEfn()]
 #'
+#' @author
+#' Francis K. C. Hui \email{fhui28@gmail.com}
+#' 
+#' 
 #' @examples
 #' \donttest{
 #' ##------------------------------

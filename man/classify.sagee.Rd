@@ -125,3 +125,6 @@ table(true = simdat$species_groupings[test_species], classified = getclass$speci
 \seealso{
 \code{\link[=SAGEE]{SAGEE()}}, \code{\link[=GEEfn]{GEEfn()}}
 }
+\author{
+Francis K. C. Hui \email{fhui28@gmail.com}
+}
