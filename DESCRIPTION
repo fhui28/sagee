@@ -1,0 +1,31 @@
+Package: SAGEE
+Title: Species Archetype Generalized Estimating Equations
+Version: 0.1
+Date: 2027-06-01
+Authors@R: c(person(given = "Francis K.C.",
+                    family = "Hui", 
+                    role = c("aut", "cre"), 
+                    email = "fhui28@gmail.com"))
+Maintainer: Francis KC Hui <fhui28@gmail.com>
+Description: Fits a species archetype generalized estimating equation (SAGEE) model to a matrix of multivariate responses, hard-classifying species into a fixed number of archetypes where species assigned to the same archetype share a vector of archetypal regression coefficients. SAGEE only requires specification of a marginal mean model, a marginal variance function, along with a working correlation matrix describing spatial dependence among sites within each species. 
+License: GPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.3
+Imports: 
+    bindata,
+    doParallel,
+    fields,
+    foreach,
+    GpGp,
+    lifecycle,
+    Matrix,
+    mgcv,
+    statmod,
+    tweedie,
+    mvtnorm
+Suggests:
+    mvabund
+Language: en-US
+URL: https://github.com/fhui28/SAGEE
+BugReports: https://github.com/fhui28/SAGEE/issues
