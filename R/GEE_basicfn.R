@@ -34,6 +34,8 @@
 #'
 #' @details
 #' See the accompanying manuscript, currently in preparation, for further methodological details. See also Ito and Sugasawa (2022) for the broader grouped GEE context from which the SAGEE model was developed.
+#' 
+#' Note the function was designed to be a workhorse function for the main [SAGEE()] function, and so it is not "equipped" with user-friendly features such as formula interfaces, S3 methods etc...
 #'
 #'
 #' @return A list with the following components:
@@ -77,6 +79,130 @@
 #'
 #' @author
 #' Francis K. C. Hui \email{fhui28@gmail.com}
+#' 
+#' @examples
+#' \donttest{
+#' ##------------------------------
+#' ## Example 1: Binary responses
+#' ##------------------------------
+#' ## Simulate multi-species presence-absence data from a marginal species archetype model,
+#' ## with archetype-specific marginal spatial correlations
+#' set.seed(062027)
+#' num_sites <- 500
+#' num_species <- 60
+#' num_archetypes <- 3
+#' p <- 8
+#' covariate_dat <- mvtnorm::rmvnorm(num_sites, sigma = 0.5^abs(outer(1:p, 1:p, "-")))
+#' colnames(covariate_dat) <- paste0("X", 1:p)
+#' sp_coords <- cbind(runif(num_sites), runif(num_sites))
+#'
+#' true_archetypal_coefficients <- rbind(c(1, -1, 0, 0, 0.5, -0.5, 0.25, -0.25),
+#'                                       c(-1, 1, -1, 0.5, 0, 0, 0.25, 0),
+#'                                       c(1, 0.5, 0, 0, -1, 0, -0.5, -0.25))
+#' colnames(true_archetypal_coefficients) <- colnames(covariate_dat)
+#' true_spp_intercepts <- runif(num_species, -2.5, 0)
+#'
+#' ## Marginal correlation for each archetype: exponential spatial correlation plus a nugget
+#' true_range <- c(0.25, 0.35, 0.55)
+#' true_spvarprop <- c(0.6, 0.5, 0.4)
+#' true_R <- lapply(1:num_archetypes, function(k0) {
+#'     true_spvarprop[k0] * fields::Exp.cov(x1 = sp_coords, aRange = true_range[k0]) +
+#'         (1 - true_spvarprop[k0]) * diag(num_sites)
+#'     })
+#'
+#' simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+#'                            Xbeta_formula = ~ 1,
+#'                            data = as.data.frame(covariate_dat),
+#'                            family = binomial(),
+#'                            mixing_probabilities = c(0.5, 0.25, 0.25),
+#'                            archetypal_coefficients = true_archetypal_coefficients,
+#'                            species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+#'                            common_correlation = FALSE,
+#'                            marginal_correlation = true_R,
+#'                            seed = 062027)
+#' summary(colMeans(simdat$Y)) # Species prevalences
+#'
+#'
+#' ## Fit a GEE separately to the species belonging to each archetype, using the true
+#' ## archetype memberships and the true marginal correlation as the working correlation.
+#' ## Starting values for shared coefficients are obtained using species-specific GLMs.
+#' ## This is used purely to demonstrate how the function can be used in practice...
+#' fit_binary <- lapply(1:num_archetypes, function(k0) {
+#'     get_resps <- simdat$Y[, simdat$species_groupings == k0, drop = FALSE]
+#'     get_start <- sapply(1:ncol(get_resps), function(j) {
+#'         stats::glm(get_resps[,j] ~ covariate_dat, family = binomial())$coefficients[-1]
+#'         })
+#'         
+#'     GEEfn(y = get_resps,
+#'           Xmat_alpha = covariate_dat,
+#'           Xmat_beta = matrix(1, nrow = num_sites, ncol = 1),
+#'           start_alpha = rowMeans(get_start),
+#'           workingcorrelation = true_R[[k0]],
+#'           family = binomial(),
+#'           control = list(trace = TRUE))
+#'     })
+#'
+#'
+#' ## Compare the true and estimated archetypal coefficients, along with sandwich standard errors
+#' lapply(1:num_archetypes, function(k0) {
+#'     rbind(true = true_archetypal_coefficients[k0,],
+#'           estimate = fit_binary[[k0]]$alpha,
+#'           se_sandwich = fit_binary[[k0]]$se_sandwich_alpha,
+#'           se_sandwich_adj = fit_binary[[k0]]$se_sandwich_alpha_adj)
+#'     })
+#'
+#'
+#' ##------------------------------
+#' ## Example 2: Negative binomial responses
+#' ##------------------------------
+#' ## Simulate multi-species overdispersed count data, reusing the covariates, 
+#' ## spatial coordinates, and archetypal coefficients from Example 1. 
+#' true_disp_param <- runif(num_species, 0.5, 5)
+#' true_range <- c(0.25, 0.35, 0.55) * 0.5
+#' true_R <- lapply(1:num_archetypes, function(k0) {
+#'     true_spvarprop[k0] * fields::Exp.cov(x1 = sp_coords, aRange = true_range[k0]) +
+#'         (1 - true_spvarprop[k0]) * diag(num_sites)
+#'     })
+#'
+#' simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+#'                            Xbeta_formula = ~ 1,
+#'                            data = as.data.frame(covariate_dat),
+#'                            family = nb2(),
+#'                            mixing_probabilities = c(0.5, 0.25, 0.25),
+#'                            archetypal_coefficients = true_archetypal_coefficients,
+#'                            species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+#'                            dispersion_parameters = true_disp_param,
+#'                            common_correlation = FALSE,
+#'                            marginal_correlation = true_R,
+#'                            seed = 062027)
+#' summary(colMeans(simdat$Y > 0)) # Proportion of non-zero counts per species
+#'
+#'
+#' fit_nb <- lapply(1:num_archetypes, function(k0) {
+#'     get_resps <- simdat$Y[, simdat$species_groupings == k0, drop = FALSE]
+#'     get_start <- sapply(1:ncol(get_resps), function(j) {
+#'         mgcv::gam(get_resps[,j] ~ covariate_dat, family = mgcv::nb())$coefficients[-1]
+#'         })
+#'
+#'     GEEfn(y = get_resps,
+#'           Xmat_alpha = covariate_dat,
+#'           Xmat_beta = matrix(1, nrow = num_sites, ncol = 1),
+#'           start_alpha = rowMeans(get_start),
+#'           workingcorrelation = true_R[[k0]],
+#'           family = nb2(),
+#'           control = list(trace = TRUE))
+#'     })
+#'
+#'
+#' ## Compare the true and estimated archetypal coefficients, along with sandwich standard errors
+#' lapply(1:num_archetypes, function(k0) {
+#'     rbind(true = true_archetypal_coefficients[k0,],
+#'           estimate = fit_nb[[k0]]$alpha,
+#'           se_sandwich = fit_nb[[k0]]$se_sandwich_alpha,
+#'           se_sandwich_adj = fit_nb[[k0]]$se_sandwich_alpha_adj)
+#'     })
+#'     
+#' }
 #'
 #' @importFrom mgcv pcls
 #' @importFrom stats binomial optimize lm.fit
