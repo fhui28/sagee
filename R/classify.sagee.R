@@ -26,6 +26,90 @@
 #' @seealso
 #' [SAGEE()], [GEEfn()]
 #'
+#' @examples
+#' \donttest{
+#' ##------------------------------
+#' ## Binary responses with archetype-specific spatial correlations
+#' ##------------------------------
+#' ## Simulate multi-species presence-absence data from a marginal species archetype model,
+#' ## with archetype-specific marginal spatial correlations
+#' set.seed(012027)
+#' num_sites <- 400
+#' num_species <- 100
+#' num_archetypes <- 3
+#' p <- 8
+#' covariate_dat <- mvtnorm::rmvnorm(num_sites, sigma = 0.5^abs(outer(1:p, 1:p, "-")))
+#' colnames(covariate_dat) <- paste0("X", 1:p)
+#' sp_coords <- cbind(runif(num_sites), runif(num_sites))
+#'
+#' true_archetypal_coefficients <- rbind(c(1, -1, 0, 0, 0.5, -0.5, 0.25, -0.25),
+#'                                       c(-1, 1, -1, 0.5, 0, 0, 0.25, 0),
+#'                                       c(1, 0.5, 0, 0, -1, 0, -0.5, -0.25))
+#' colnames(true_archetypal_coefficients) <- colnames(covariate_dat)
+#' true_spp_intercepts <- runif(num_species, -2.5, 0)
+#'
+#' ## Marginal correlation for each archetype: exponential spatial correlation plus a nugget
+#' true_range <- c(0.25, 0.35, 0.55)
+#' true_spvarprop <- c(0.6, 0.5, 0.4)
+#' true_R <- lapply(1:num_archetypes, function(k0) {
+#'     true_spvarprop[k0] * fields::Exp.cov(x1 = sp_coords, aRange = true_range[k0]) +
+#'         (1 - true_spvarprop[k0]) * diag(num_sites)
+#'     })
+#'
+#' simdat <- create_sageelife(Xalpha_formula = ~ . - 1,
+#'                            Xbeta_formula = ~ 1,
+#'                            data = as.data.frame(covariate_dat),
+#'                            family = binomial(),
+#'                            mixing_probabilities = c(0.5, 0.25, 0.25),
+#'                            archetypal_coefficients = true_archetypal_coefficients,
+#'                            species_coefficients = matrix(true_spp_intercepts, nrow = 1),
+#'                            common_correlation = FALSE,
+#'                            marginal_correlation = true_R,
+#'                            seed = NULL)
+#'
+#' ## Randomly split the species (columns) into 80 training species and 20 test species.
+#' ## Both sets are observed at the same 400 sites.
+#' test_species <- sort(sample(1:num_species, 20))
+#' train_species <- setdiff(1:num_species, test_species)
+#' table(simdat$species_groupings[train_species])
+#' table(simdat$species_groupings[test_species])
+#'
+#'
+#' ## Fit SAGEE to the training species, with an archetype-specific NNGP working correlation
+#' fit_binary <- SAGEE(y = simdat$Y[, train_species],
+#'                     Xalpha_formula = ~ . - 1,
+#'                     Xbeta_formula = ~ 1,
+#'                     data = simdat$data,
+#'                     num_archetypes = num_archetypes,
+#'                     family = binomial(),
+#'                     working_correlation_control = list(cor_type = "NNGP",
+#'                                                        spatial_coords = sp_coords,
+#'                                                        common = FALSE,
+#'                                                        matern_smoothness = 1.5,
+#'                                                        num_neighbors = 30),
+#'                     num_cores = 2,
+#'                     control = list(trace = TRUE))
+#'
+#'
+#' ## Classify the test species into the archetypes estimated from the training species.
+#' ## Note a larger number of step-halving iterations may be needed for convergence...
+#' getclass <- classify(fit_binary,
+#'                      new_y = simdat$Y[, test_species],
+#'                      newdata = simdat$data,
+#'                      new_spatial_coords = sp_coords,
+#'                      control = list(step_halving_maxit = 100))
+#' getclass$species_groupings
+#' head(getclass$classification_criterion) # Smaller values indicate a better-fitting archetype
+#'
+#'
+#' ## Classification performance, noting archetype labels in the fitted model are only identified 
+#' ## up to a permutation.
+#' table(true = simdat$species_groupings[train_species], estimated = fit_binary$species_groupings)
+#'
+#' ## Test species
+#' table(true = simdat$species_groupings[test_species], classified = getclass$species_groupings)
+#' }
+#'
 #'
 #' @method classify sagee
 #'
